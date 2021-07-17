@@ -1,0 +1,18 @@
+SEPARATOR = "-|+0+|-"
+EOS = "++--++"
+FOLDER_EXCEPTION = "*"
+
+METADATA = "Metadata"
+LOGIN = "Login"
+FETCH = "Fetch"
+CREATE = "Create"
+DELETE = "Delete"
+UPLOAD = "Upload"
+DOWNLOAD = "Download"
+ACKNOWLEDGE = "Acknowledge"
+FOLDER = "Folder"
+FILE = "File"
+ERROR = "Error"
+
+TRUE = "True"
+FALSE = "False"
