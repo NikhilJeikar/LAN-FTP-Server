@@ -1,5 +1,6 @@
 import socket
 import os
+import shutil
 import json
 from Dart_Constants import *
 
@@ -12,13 +13,7 @@ BUFFER_SIZE = 1024 * 1024
 Max = 10
 
 
-def UserRefresh():
-    global Users, Passwords, Storages
-    for i in ReadUserFile.readlines():
-        i = i.split(',')
-        Users.append(i[0])
-        Passwords.append(i[1])
-        Storages.append(i[2])
+# Initialize
 
 
 def JSONGen(Dir):
@@ -50,21 +45,83 @@ def JSONGen(Dir):
     return json.dumps(Dict, indent=4)
 
 
-# Initialize
-Users = []
-Passwords = []
-Storages = []
+class Operations:
+    def __init__(self, Client):
+        self._User = ""
+        self._Storage = ""
+        self._Size = 0
 
-WriteUserFile = open('UserData.txt', 'a', encoding='utf-8')
-ReadUserFile = open('UserData.txt', 'r', encoding='utf-8')
-UserRefresh()
+        self._Client = Client
+        self._Users = []
+        self._Passwords = []
+        self._Storages = []
+
+        self._WriteUserFile = open('UserData.txt', 'a', encoding='utf-8')
+        self._ReadUserFile = open('UserData.txt', 'r', encoding='utf-8')
+        self.UserRefresh()
+
+    def get_size(self, start_path):
+        self._Size = 0
+        for dirpath, dirnames, filenames in os.walk(start_path):
+            for f in filenames:
+                fp = os.path.join(dirpath, f)
+                # skip if it is symbolic link
+                if not os.path.islink(fp):
+                    self._Size += os.path.getsize(fp)
+        print(self._Size)
+
+    def UserRefresh(self):
+        for i in self._ReadUserFile.readlines():
+            i = i.split(',')
+            self._Users.append(i[0])
+            self._Passwords.append(i[1])
+            self._Storages.append(i[2])
+
+    def Login(self, lis):
+        if lis[1] in self._Users:
+            Use = self._Users.index(lis[1])
+            if lis[2] == self._Passwords[Use]:
+                self._User = lis[1]
+                self._Storage = self._Storages[Use]
+                self._Client.send(f"{LOGIN}{SEPARATOR}{TRUE}{SEPARATOR}{TRUE}".encode())
+            else:
+                self._Client.send(f"{LOGIN}{SEPARATOR}{TRUE}{SEPARATOR}{FALSE}".encode())
+        else:
+            self._Client.send(f"{LOGIN}{SEPARATOR}{FALSE}".encode())
+
+    def NewFolder(self, lis):
+        if lis[1] == FOLDER:
+            try:
+                os.mkdir(self._User + "/" + lis[2], mode=0o666)
+                self._Client.send((CREATE + SEPARATOR + FOLDER).encode())
+            except FileNotFoundError:
+                self._Client.send((ERROR + SEPARATOR + "Invalid Location").encode())
+            except FileExistsError:
+                self._Client.send((ERROR + SEPARATOR + "File already exist").encode())
+
+    def Delete(self, lis):
+        if lis[1] == FOLDER:
+            try:
+                shutil.rmtree(self._User + "/" + lis[2])
+            except FileExistsError or FileNotFoundError:
+                self._Client.send((ERROR + SEPARATOR + "Unable to delete the folder.").encode())
+        elif lis[1] == FILE:
+            try:
+                os.remove(self._User + "/" + lis[2])
+            except FileExistsError or FileNotFoundError:
+                self._Client.send((ERROR + SEPARATOR + "Unable to delete the file.").encode())
+        else:
+            self._Client.send((ERROR + SEPARATOR + "Some error occurred try after refreshing").encode())
+
+    def Fetch(self, lis):
+        if lis[1] == METADATA:
+            self.get_size(self._User)
+            self._Client.send((METADATA + SEPARATOR + self._Storage + SEPARATOR + str(
+                self._Size) + SEPARATOR + JSONGen(self._User)).encode())
 
 
 def Command(Client, Address):
-    User = None
-    Storage = None
-    CD = ""
-    global ReadUserFile, WriteUserFile
+    Op = Operations(Client)
     print(f"[+] {Address} is connected.")
     while True:
         data = Client.recv(BUFFER_SIZE)
@@ -73,28 +130,13 @@ def Command(Client, Address):
         if data != "":
             lis = data.split(SEPARATOR)
             if lis[0] == LOGIN:
-                if lis[1] in Users:
-                    Use = Users.index(lis[1])
-                    if lis[2] == Passwords[Use]:
-                        User = lis[1]
-                        Storage = Storages[Use]
-                        Client.send(f"{LOGIN}{SEPARATOR}{TRUE}{SEPARATOR}{TRUE}".encode())
-                    else:
-                        Client.send(f"{LOGIN}{SEPARATOR}{TRUE}{SEPARATOR}{FALSE}".encode())
-                else:
-                    Client.send(f"{LOGIN}{SEPARATOR}{FALSE}".encode())
+                Op.Login(lis)
             elif lis[0] == CREATE:
-                if lis[1] == FOLDER:
-                    try:
-                        os.mkdir(User + "/" + lis[2], mode=0o666)
-                        Client.send((CREATE + SEPARATOR + FOLDER).encode())
-                    except FileNotFoundError:
-                        Client.send((ERROR + SEPARATOR + "Invalid Location").encode())
-                    except FileExistsError:
-                        Client.send((ERROR + SEPARATOR + "File already exist").encode())
+                Op.NewFolder(lis)
             elif lis[0] == FETCH:
-                if lis[1] == METADATA:
-                    Client.send((METADATA + SEPARATOR + Storage + SEPARATOR + JSONGen(User)).encode())
+                Op.Fetch(lis)
+            elif lis[0] == DELETE:
+                Op.Delete(lis)
         else:
             break
     print(f"[+] {Address} is disconnected.")
