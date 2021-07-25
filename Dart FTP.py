@@ -68,7 +68,6 @@ class Operations:
                 # skip if it is symbolic link
                 if not os.path.islink(fp):
                     self._Size += os.path.getsize(fp)
-        print(self._Size)
 
     def UserRefresh(self):
         for i in self._ReadUserFile.readlines():
@@ -119,6 +118,34 @@ class Operations:
             self._Client.send((METADATA + SEPARATOR + self._Storage + SEPARATOR + str(
                 self._Size) + SEPARATOR + JSONGen(self._User)).encode())
 
+    def WriteFile(self, lis):
+        File = open(self._User + "/" + lis[2], "wb+")
+        self._Client.send((UPLOAD + SEPARATOR + ACKNOWLEDGE).encode())
+        FileSize = int(lis[1])
+        Buf = BUFFER_SIZE
+        Bytes = bytes()
+        while FileSize != len(Bytes):
+            if FileSize - len(Bytes) < BUFFER_SIZE:
+                Buf = FileSize - len(Bytes)
+            Bytes = Bytes + self._Client.recv(Buf)
+        Bytes = Bytes.decode()
+        Bytes = Bytes.replace('[', '')
+        Bytes = Bytes.replace(']', '')
+        Bytes = Bytes.replace(' ', '')
+        for i in Bytes.split(','):
+            File.write(int(i).to_bytes(1, 'big'))
+        File.close()
+        self.Fetch([FETCH, METADATA])
+
+    def ReadFile(self, lis):
+        File = open(self._User + "/" + lis[1], "rb")
+        Data = File.read()
+        self._Client.send((DOWNLOAD + SEPARATOR + str(len(Data)) + SEPARATOR + lis[2]).encode())
+        data = self._Client.recv(BUFFER_SIZE)
+        data = data.decode()
+        if data == ACKNOWLEDGE:
+            self._Client.send(Data)
+
 
 def Command(Client, Address):
     Op = Operations(Client)
@@ -126,7 +153,6 @@ def Command(Client, Address):
     while True:
         data = Client.recv(BUFFER_SIZE)
         data = data.decode()
-        print(data)
         if data != "":
             lis = data.split(SEPARATOR)
             if lis[0] == LOGIN:
@@ -137,6 +163,10 @@ def Command(Client, Address):
                 Op.Fetch(lis)
             elif lis[0] == DELETE:
                 Op.Delete(lis)
+            elif lis[0] == UPLOAD:
+                Op.WriteFile(lis)
+            elif lis[0] == DOWNLOAD:
+                Op.ReadFile(lis)
         else:
             break
     print(f"[+] {Address} is disconnected.")
